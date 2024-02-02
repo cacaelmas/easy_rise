@@ -1,0 +1,6 @@
+Process ID: 28432
+Name: RiseOnline-Win64-Shipping.exe
+Status: running
+CPU Usage: 0.0%
+Memory Usage: 5235.05078125 MB
+Command Line: ['C:\\Program Files\\RiseOnline\\Game\\RiseOnline\\Binaries\\Win64\\RiseOnline-Win64-Shipping.exe', '-dx12', '-RiseProfile2']
