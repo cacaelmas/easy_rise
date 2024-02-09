@@ -19,6 +19,7 @@ along with this program. If not, see <http://www.gnu.org/licenses/>.
 """
 import random
 import time
+from datetime import datetime, timedelta
 
 import win32api
 import win32gui
@@ -35,6 +36,7 @@ import os
 import  numpy as np
 
 import numpy as np
+from InterceptionWrapper import InterceptionMouseState,InterceptionMouseStroke
 
 
 
@@ -288,6 +290,8 @@ def checkMana():
 
 
 def checkHealth():
+    if checkMana():
+        return
     global SELF_HP_R, SELF_HP_G, SELF_HP_B, SELF_HP_X, SELF_HP_Y
     x, y = SELF_HP_X, SELF_HP_Y
     r, g, b = readPixel(x, y)
@@ -328,14 +332,14 @@ def rgbint2rgbtuple(RGBint):
     return (red, green, blue)
 
 def recordColorOfCursorPos():
-    for i in range(5,0,-1):
+    for i in range(2,0,-1):
         print("Recording color in {} seconds".format(i))
         time.sleep(1)
     x, y = win32api.GetCursorPos()
     r,g,b = readPixel(x,y)
     print("Recored r,g,b = {}, {}, {} at x,y = [{}, {}]".format(r,g,b,x,y))
     return x,y,r,g,b
-
+#
 print("Can nereye gelince pot basılsın? (mouse'u üzerinde beklet)")
 SELF_HP_X, SELF_HP_Y, SELF_HP_R, SELF_HP_G, SELF_HP_B = recordColorOfCursorPos()
 
@@ -371,7 +375,76 @@ def pressZ(autohotpy):
     return extractMobName()
 
 
+def leftButton(autohotpy,event):
+    """
+    This function simulates a left click
+    """
+    stroke = InterceptionMouseStroke()
+    stroke.state = InterceptionMouseState.INTERCEPTION_MOUSE_LEFT_BUTTON_DOWN
+    autohotpy.sendToDefaultMouse(stroke)
+    time.sleep(0.03)
+    stroke.state = InterceptionMouseState.INTERCEPTION_MOUSE_LEFT_BUTTON_UP
+    autohotpy.sendToDefaultMouse(stroke)
 
+def helishCombo(autohotpy):
+    autohotpy.Z.press()
+    time.sleep(0.01)
+    autohotpy.N2.press()
+    time.sleep(0.20)
+    autohotpy.R.press()
+    time.sleep(0.30)
+
+kitap_time = None
+str_time = None
+malice_time = None
+
+def pressKeyNTimes(key):
+    random_number = int(random.uniform(2, 8))
+    for i in range(0, random_number):
+        key.press()
+    key.press()
+def kitap(autohotpy):
+    global kitap_time
+    if kitap_time is None:
+        kitap_time = datetime.now()
+        print(f"kitap_time recorded at: {kitap_time}")
+        pressKeyNTimes(autohotpy.N3)
+    else:
+        if datetime.now() - kitap_time > timedelta(minutes=4):
+            print("4 minutes have passed since kitap_time was recorded.")
+            pressKeyNTimes(autohotpy.N3)
+            kitap_time = datetime.now()
+
+def selfStr(autohotpy):
+    global str_time
+    if str_time is None:
+        str_time = datetime.now()
+        print(f"str_time recorded at: {str_time}")
+        pressKeyNTimes(autohotpy.N7)
+    else:
+        if datetime.now() - str_time > timedelta(minutes=11):
+            print("12 minutes have passed since str_time was recorded.")
+            pressKeyNTimes(autohotpy.N7)
+            str_time = datetime.now()
+
+def malice(autohotpy):
+    global malice_time
+    if malice_time is None:
+        malice_time = datetime.now()
+        print(f"malice_time recorded at: {malice_time}")
+        autohotpy.Z.press()
+        pressKeyNTimes(autohotpy.N4)
+    else:
+        if datetime.now() - malice_time > timedelta(seconds=8):
+            print("8 secs have passed since malice_time was recorded.")
+            time.sleep(0.2)
+            autohotpy.Z.press()
+            pressKeyNTimes(autohotpy.N4)
+            malice_time = datetime.now()
+            time.sleep(0.8)
+
+def sprint(autohotpy):
+    pressKeyNTimes(autohotpy.N8)
 
 def superCombo(autohotpy, event):
     """
@@ -380,41 +453,55 @@ def superCombo(autohotpy, event):
     """
 
     r_started = False
-    for i in range(0, 1000):
-        autohotpy.N3.press()
-        waitBetweenKeys()
+    for i in range(0, 100000):
+        if checkMana():
+            print("Mana needed!")
+            autohotpy.N9.press()
 
-        autohotpy.N7.press()
-        waitBetweenKeys()
-
-        autohotpy.N8.press()
-        waitBetweenKeys()
-
-        #mob_name = pressZ(autohotpy)
-        autohotpy.Z.press()
-        waitBetweenKeys()
-        #
-        # if len(mob_name) > 2:
-        autohotpy.R.press()
-        waitBetweenKeys()
-
-
-        waitBetweenKeys()
-
-        autohotpy.N2.press()
-        waitBetweenKeys()
+        sprint(autohotpy)
+        malice(autohotpy)
+        helishCombo(autohotpy)
+        selfStr(autohotpy)
+        kitap(autohotpy)
 
         if checkHealth():
             print("Health needed!")
             autohotpy.N0.press()
 
-        if checkMana():
-            print("Mana needed!")
-            autohotpy.N9.press()
 
-        if checkRepair():
-            print("Repair needed!")
-            autohotpy.N6.press()
+
+        # leftButton(autohotpy,1)
+        # time.sleep(0.03)
+        # print("{}.th click".format(i+1))
+
+        # autohotpy.N3.press()
+        # waitBetweenKeys()
+        #
+        # autohotpy.N7.press()
+        # waitBetweenKeys()
+        #
+        # autohotpy.N8.press()
+        # waitBetweenKeys()
+        #
+        # #mob_name = pressZ(autohotpy)
+        # autohotpy.Z.press()
+        # waitBetweenKeys()
+        # #
+        # # if len(mob_name) > 2:
+        # autohotpy.R.press()
+        # waitBetweenKeys()
+        #
+        #
+        # waitBetweenKeys()
+        #
+        # autohotpy.N2.press()
+        # waitBetweenKeys()
+        #
+
+
+        # if checkRepair():
+        #     print("Repair needed!")
+        #     autohotpy.N6.press()
 
     # autohotpy.A.press()  # press() method simulates a key press by sending first the key down, and later the key up events
     # autohotpy.S.press()
