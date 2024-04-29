@@ -17,7 +17,9 @@ GNU Lesser General Public License for more details.
 You should have received a copy of the GNU Lesser General Public License
 along with this program. If not, see <http://www.gnu.org/licenses/>.
 """
+import math
 import random
+import threading
 import time
 from datetime import datetime, timedelta
 
@@ -36,9 +38,14 @@ import os
 import  numpy as np
 
 import numpy as np
-from InterceptionWrapper import InterceptionMouseState, InterceptionMouseStroke, InterceptionMouseFlag
+#from InterceptionWrapper import InterceptionMouseState, InterceptionMouseStroke, InterceptionMouseFlag
 from PIL import Image
+import interception
 
+from intercept.Interception.Interception import Interception, FilterKeyState
+from intercept.Interception.Interception.inputs import _get_keycode
+
+interception.auto_capture_devices(keyboard=True, mouse=True)
 
 # CONFIGURATION
 HEALING_POT_KEY = 0  # Change accordingly
@@ -60,7 +67,7 @@ ACTIVE_SKILL_PAGES = {
 # }
 
 ENABLE_R_HITS = True  # Change it to True for basic attacks
-
+RUN_STATE = False
 # Do not change anything below this line
 SELF_HP_X = 195
 SELF_HP_Y = 46
@@ -353,8 +360,20 @@ def readPixel(x, y):
         x = 1919
     if y >= 1080:
         y = 1079
-    color = win32gui.GetPixel(win32gui.GetDC(win32gui.GetActiveWindow()), x, y)
-    r, g, b = rgbint2rgbtuple(color)
+    r, g, b = 60, 60, 60  # Default/fallback color
+
+    hwnd = win32gui.GetDesktopWindow()  # More stable reference for screen capture
+    hdc = win32gui.GetDC(hwnd)
+    try:
+        if hdc:
+            color = win32gui.GetPixel(hdc, x, y)
+            r, g, b = rgbint2rgbtuple(color)
+    except Exception as e:
+        print(f"Error reading pixel: {e}")
+    finally:
+        if hdc:
+            win32gui.ReleaseDC(hwnd, hdc)
+
     return r, g, b
 
 def checkMonsterHealtLow():
@@ -396,16 +415,15 @@ def checkHealth():
 
 def checkPartyMemberHealth(x,y):
     r, g, b = readPixel(x, y)
-    print(f"[{x}, {y}] -> RGB: {r} {g} {b}")
-    if r == 169 and g == 6 and b == 9:
-        return False
-    else:
+    #zprint(f"[{x}, {y}] -> RGB: {r} {g} {b}")
+    if r < 40:
         return True
+    else:
+        return False
 
 def clickPartyMember(autohotpy, event, x,y):
-    autohotpy.moveMouseToPosition(x,y)
-    time.sleep(0.3)
-    leftButton(autohotpy, event)
+    interception.click(x, y, button="left", delay= 0.1)
+    autohotpy.moveMouseToPosition(1280, 720)
 
 def checkRepair():
     global SELF_ITEM_R, SELF_ITEM_G, SELF_ITEM_B, SELF_ITEM_X, SELF_ITEM_Y
@@ -472,7 +490,7 @@ def waitBetweenKeys():
     time.sleep(random_number)
 
 def pressZ(autohotpy):
-    autohotpy.Z.press()
+    autohotpy.press("z")
     waitBetweenKeys()
     return extractMobName()
 
@@ -481,35 +499,25 @@ def leftButton(autohotpy,event):
     """
     This function simulates a left click
     """
-    stroke = InterceptionMouseStroke()
-    autohotpy.sendToDefaultMouse(stroke)
-    stroke.state = InterceptionMouseState.INTERCEPTION_MOUSE_LEFT_BUTTON_DOWN
-    autohotpy.sendToDefaultMouse(stroke)
-    time.sleep(0.05)
-    stroke.state = InterceptionMouseState.INTERCEPTION_MOUSE_LEFT_BUTTON_UP
-    autohotpy.sendToDefaultMouse(stroke)
+    # stroke = InterceptionMouseStroke()
+    # autohotpy.sendToDefaultMouse(stroke)
+    # stroke.state = InterceptionMouseState.INTERCEPTION_MOUSE_LEFT_BUTTON_DOWN
+    # autohotpy.sendToDefaultMouse(stroke)
+    # time.sleep(0.05)
+    # stroke.state = InterceptionMouseState.INTERCEPTION_MOUSE_LEFT_BUTTON_UP
+    # autohotpy.sendToDefaultMouse(stroke)
 
-def rightButtonAndDrag(autohotpy, event):
-    stroke = InterceptionMouseStroke()
-    stroke.state = InterceptionMouseState.INTERCEPTION_MOUSE_RIGHT_BUTTON_DOWN
-    autohotpy.sendToDefaultMouse(stroke)
-    waitBetweenKeys()
-    for i in range(750,901,50):
-        event.x += 50
-        time.sleep(0.01)
-        autohotpy.sendToDefaultMouse(event)
-    stroke.state = InterceptionMouseState.INTERCEPTION_MOUSE_RIGHT_BUTTON_UP
-    autohotpy.sendToDefaultMouse(stroke)
+    interception.click(700, 1000, button="left", delay= 0.1)
 
 
 def torment(autohotpy, event):
     global torment_time
     if torment_time is None:
         torment_time = datetime.now()
-        print(f"torment_time recorded at: {malice_time}")
-        autohotpy.Z.press()
+        print(f"torment_time recorded at: {torment_time}")
+        autohotpy.press("z")
         time.sleep(0.3)
-        pressKeyNTimes(autohotpy.N5)
+        pressKeyNTimes("5")
         time.sleep(0.2)
         leftButton(autohotpy, event)
     else:
@@ -517,18 +525,19 @@ def torment(autohotpy, event):
             print("15 secs have passed since torment_time was recorded.")
             time.sleep(0.2)
             time.sleep(0.3)
-            pressKeyNTimes(autohotpy.N5)
+            pressKeyNTimes("5")
             time.sleep(0.2)
             leftButton(autohotpy, event)
 
 
-def helishCombo(autohotpy):
-    autohotpy.Z.press()
+def helishCombo(autohotpy, should_r = False):
+    autohotpy.press("z")
     time.sleep(0.01)
-    autohotpy.N2.press()
-    time.sleep(0.20)
-    autohotpy.R.press()
-    time.sleep(0.19)
+    autohotpy.press("2")
+    time.sleep(0.33)
+    autohotpy.press("r")
+    if not should_r:
+        time.sleep(0.19)
 
 kitap_time = None
 str_time = None
@@ -538,18 +547,18 @@ torment_time = None
 def pressKeyNTimes(key):
     random_number = int(random.uniform(2, 8))
     for i in range(0, random_number):
-        key.press()
-    key.press()
+        interception.press(key)
+    interception.press(key)
 def kitap(autohotpy):
     global kitap_time
     if kitap_time is None:
         kitap_time = datetime.now()
         print(f"kitap_time recorded at: {kitap_time}")
-        pressKeyNTimes(autohotpy.N3)
+        pressKeyNTimes("3")
     else:
         if datetime.now() - kitap_time > timedelta(minutes=4, seconds=1):
             print("4 minutes have passed since kitap_time was recorded.")
-            pressKeyNTimes(autohotpy.N3)
+            pressKeyNTimes("3")
             kitap_time = datetime.now()
 
 def selfStr(autohotpy):
@@ -557,11 +566,11 @@ def selfStr(autohotpy):
     if str_time is None:
         str_time = datetime.now()
         print(f"str_time recorded at: {str_time}")
-        pressKeyNTimes(autohotpy.N7)
+        pressKeyNTimes("7")
     else:
         if datetime.now() - str_time > timedelta(minutes=12, seconds=1):
             print("12 minutes have passed since str_time was recorded.")
-            pressKeyNTimes(autohotpy.N7)
+            pressKeyNTimes("7")
             str_time = datetime.now()
 
 def malice(autohotpy):
@@ -570,25 +579,25 @@ def malice(autohotpy):
         malice_time = datetime.now()
         print(f"malice_time recorded at: {malice_time}")
         time.sleep(0.2)
-        autohotpy.Z.press()
-        autohotpy.F2.press()
-        pressKeyNTimes(autohotpy.N3)
-        autohotpy.F1.press()
+        autohotpy.press("z")
+        autohotpy.press("f2")
+        pressKeyNTimes("3")
+        autohotpy.press("f1")
         malice_time = datetime.now()
         time.sleep(0.8)
     else:
-        if datetime.now() - malice_time > timedelta(seconds=8):
+        if datetime.now() - malice_time > timedelta(seconds=9):
             print("8 secs have passed since malice_time was recorded.")
             time.sleep(0.2)
-            autohotpy.Z.press()
-            autohotpy.F2.press()
-            pressKeyNTimes(autohotpy.N3)
-            autohotpy.F1.press()
+            autohotpy.press("z")
+            autohotpy.press("f2")
+            pressKeyNTimes("3")
+            autohotpy.press("f1")
             malice_time = datetime.now()
             time.sleep(0.8)
 
 def sprint(autohotpy):
-    pressKeyNTimes(autohotpy.N8)
+    pressKeyNTimes("8")
 
 right_drag_time = datetime.now()
 
@@ -602,27 +611,28 @@ def partyHealer(autohotpy, event):
     trueCount = 0
     for i in range(0, partySize):
         #print(f"Trying to read {(PARTY_FIRST_X, PARTY_FIRST_Y + (i*50))}")
-        if i == 7:
-            needs[i] = checkPartyMemberHealth(PARTY_FIRST_X, (PARTY_FIRST_Y + (i * 51) + 2))
-        else:
-            needs[i] = checkPartyMemberHealth(PARTY_FIRST_X, PARTY_FIRST_Y + (i * 51))
+        needs[i] = checkPartyMemberHealth(PARTY_FIRST_X, PARTY_FIRST_Y + (i * 90))
 
         if needs[i]:
             trueCount += 1
             print(f"Party member {i} needs heal")
 
 
-    if trueCount > 3:
+    if trueCount > 2:
         # party heal
-        autohotpy.N2.press()
-        autohotpy.N3.press()
+        print("Party heal")
+        if checkMana():
+            autohotpy.press("9")
+        autohotpy.press("2")
+        autohotpy.press("3")
     else:
         for i in range(0, partySize):
             if needs[i]:
-                clickPartyMember(autohotpy, event, PARTY_FIRST_X, PARTY_FIRST_Y + (i*50))
+                interception.click(PARTY_FIRST_X, PARTY_FIRST_Y + (i*90), button="left", delay= 0.1)
+                #clickPartyMember(autohotpy, event, PARTY_FIRST_X, PARTY_FIRST_Y + (i*90))
                 time.sleep(0.6)
-                autohotpy.N0.press()
-                time.sleep(1.62)
+                autohotpy.press("0")
+                time.sleep(1.82)
 
 
 def capture_screenshot_to_cv2():
@@ -679,100 +689,48 @@ from PIL import Image, ImageOps, ImageEnhance
 
 
 def getCoords(autohotpy, event):
-    # Create a window
-    cv2.namedWindow('image', cv2.WINDOW_NORMAL)
 
-    # Set the window size to 480x480
-    cv2.resizeWindow('image', 480, 480)
-
-
-
-    # create trackbars for color change
-    cv2.createTrackbar('HMin', 'image', 0, 179, nothing)  # Hue is from 0-179 for Opencv
-    cv2.createTrackbar('SMin', 'image', 0, 255, nothing)
-    cv2.createTrackbar('VMin', 'image', 0, 255, nothing)
-    cv2.createTrackbar('HMax', 'image', 0, 179, nothing)
-    cv2.createTrackbar('SMax', 'image', 0, 255, nothing)
-    cv2.createTrackbar('VMax', 'image', 0, 255, nothing)
-
-    # Set default value for MAX HSV trackbars.
-    cv2.setTrackbarPos('HMax', 'image', 179)
-    cv2.setTrackbarPos('SMax', 'image', 255)
-    cv2.setTrackbarPos('VMax', 'image', 255)
-
-    # Initialize to check if HSV min/max value changes
-    hMin = sMin = vMin = hMax = sMax = vMax = 0
-    phMin = psMin = pvMin = phMax = psMax = pvMax = 0
     coor_top_left = (2374, 269)
     coor_bottom_right = (2437, 283)
 
     z_class_type_image = capture_screenshot(coor_top_left, coor_bottom_right)
     image = np.array(z_class_type_image)
-    cv2.imwrite("Coords_img.png", image)
-    output = image
-    wait_time = 33
+    # get current positions of all trackbars
+    hMin = 0
+    sMin = 0
+    vMin = 0
 
-    while (1):
-        coor_top_left = (2374, 269)
-        coor_bottom_right = (2437, 283)
+    hMax = 0
+    sMax = 255
+    vMax = 255
 
-        z_class_type_image = capture_screenshot(coor_top_left, coor_bottom_right)
-        image = np.array(z_class_type_image)
-        cv2.imwrite("Coords_img.png", image)
-        # get current positions of all trackbars
-        hMin = cv2.getTrackbarPos('HMin', 'image')
-        sMin = cv2.getTrackbarPos('SMin', 'image')
-        vMin = cv2.getTrackbarPos('VMin', 'image')
+    # Set minimum and max HSV values to display
+    lower = np.array([hMin, sMin, vMin])
+    upper = np.array([hMax, sMax, vMax])
 
-        hMax = cv2.getTrackbarPos('HMax', 'image')
-        sMax = cv2.getTrackbarPos('SMax', 'image')
-        vMax = cv2.getTrackbarPos('VMax', 'image')
+    # Create HSV Image and threshold into a range.
+    hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+    mask = cv2.inRange(hsv, lower, upper)
+    output = cv2.bitwise_and(image, image, mask=mask)
 
-        # Set minimum and max HSV values to display
-        lower = np.array([hMin, sMin, vMin])
-        upper = np.array([hMax, sMax, vMax])
-
-        # Create HSV Image and threshold into a range.
-        hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
-        mask = cv2.inRange(hsv, lower, upper)
-        output = cv2.bitwise_and(image, image, mask=mask)
-
-        # Print if there is a change in HSV value
-        if ((phMin != hMin) | (psMin != sMin) | (pvMin != vMin) | (phMax != hMax) | (psMax != sMax) | (pvMax != vMax)):
-            print("(hMin = %d , sMin = %d, vMin = %d), (hMax = %d , sMax = %d, vMax = %d)" % (
-            hMin, sMin, vMin, hMax, sMax, vMax))
-            phMin = hMin
-            psMin = sMin
-            pvMin = vMin
-            phMax = hMax
-            psMax = sMax
-            pvMax = vMax
-
-        # Display output image
-        cv2.imshow('image', output)
-        z_class = pytesseract.image_to_string(output)
-        z_class = z_class.strip()
-        print(f"Coords: {z_class}")
-
-        # Wait longer to prevent freeze for videos.
-        if cv2.waitKey(wait_time) & 0xFF == ord('q'):
-            break
-
-    cv2.destroyAllWindows()
-
-
-    coor_top_left = (2374, 269)
-    coor_bottom_right = (2437, 283)
-
-    z_class_type_image = capture_screenshot(coor_top_left, coor_bottom_right)
-    z_class_type_image_np = np.array(z_class_type_image)
-    # Convert the color space from BGR (Pillow's default) to RGB, which OpenCV uses
-    z_class_type_image_np_confirmed = cv2.cvtColor(z_class_type_image_np, cv2.COLOR_BGR2RGB)
-    cv2.imwrite("Coords.png", z_class_type_image_np_confirmed)
-
-    z_class = pytesseract.image_to_string(z_class_type_image_np_confirmed)
+    z_class = pytesseract.image_to_string(output)
     z_class = z_class.strip()
-    print(f"Coords: {z_class}")
+
+    x = "0"
+    y = "0"
+    try:
+
+        x = z_class.split("/")[0].replace(" ", "")
+    except:
+        pass
+
+    try:
+        y = z_class.split("/")[1].replace(" ", "")
+    except:
+        pass
+
+    return x,y
+
 
 def preprocess_image_for_ocr(image):
     # Convert the image to grayscale
@@ -792,37 +750,68 @@ def preprocess_image_for_ocr(image):
     return binary_image
 def getZMobName(autohotpy, event):
     autohotpy.Z.press()
-    mob_top_left = (1111, 63)
-    mob_bottom_right = (1185, 87)
+    coor_top_left = (1111, 63)
+    coor_bottom_right = (1185, 87)
 
-    z_class_type_image = capture_screenshot(mob_top_left, mob_bottom_right)
-    z_class_type_image_np = np.array(z_class_type_image)
-    # Convert the color space from BGR (Pillow's default) to RGB, which OpenCV uses
-    z_class_type_image_np_confirmed = cv2.cvtColor(z_class_type_image_np, cv2.COLOR_BGR2RGB)
-    #cv2.imwrite("3535.png", z_class_type_image_np_confirmed)
+    z_class_type_image = capture_screenshot(coor_top_left, coor_bottom_right)
+    image = np.array(z_class_type_image)
+    # get current positions of all trackbars
+    hMin = 0
+    sMin = 0
+    vMin = 0
 
-    #z_class = pytesseract.image_to_string(z_class_type_image_np_confirmed)
-    #z_class = z_class.strip()
+    hMax = 0
+    sMax = 255
+    vMax = 255
 
+    # Set minimum and max HSV values to display
+    lower = np.array([hMin, sMin, vMin])
+    upper = np.array([hMax, sMax, vMax])
 
-    # Assuming you have an image in numpy array format
-    # You can convert it to a PIL image for preprocessing
-    z_class_type_image_np_confirmed_pil = Image.fromarray(z_class_type_image_np_confirmed)
+    # Create HSV Image and threshold into a range.
+    hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+    mask = cv2.inRange(hsv, lower, upper)
+    output = cv2.bitwise_and(image, image, mask=mask)
 
-    # Preprocess the image
-    preprocessed_image = preprocess_image_for_ocr(z_class_type_image_np_confirmed_pil)
-    preprocessed_image = np.array(preprocessed_image)
-
-    # Use pytesseract to do OCR on the preprocessed image
-    z_class = pytesseract.image_to_string(preprocessed_image)
+    z_class = pytesseract.image_to_string(output)
     z_class = z_class.strip()
-    print(f"Z ClassType: {z_class}")
+    output_string = re.sub("[^a-zA-Z]", "", z_class)
+    print(f"Z Mob Type: {output_string}")
+    return output_string
+
+def getZMobNameAndLevel(autohotpy, event):
+    autohotpy.press("z")
+    coor_top_left = (1056, 64)
+    coor_bottom_right = (1185, 87)
+
+    z_class_type_image = capture_screenshot(coor_top_left, coor_bottom_right)
+    image = np.array(z_class_type_image)
+    # get current positions of all trackbars
+    hMin = 0
+    sMin = 0
+    vMin = 0
+
+    hMax = 0
+    sMax = 255
+    vMax = 255
+
+    # Set minimum and max HSV values to display
+    lower = np.array([hMin, sMin, vMin])
+    upper = np.array([hMax, sMax, vMax])
+
+    # Create HSV Image and threshold into a range.
+    hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+    mask = cv2.inRange(hsv, lower, upper)
+    output = cv2.bitwise_and(image, image, mask=mask)
+
+    z_class = pytesseract.image_to_string(output)
+    z_class = z_class.strip()
+    print(f"Z Mob Level: {z_class}")
     return z_class
 
-
 def getZEnabled(autohotpy, event):
-    mob_top_left = (1111, 63)
-    mob_bottom_right = (1185, 87)
+    mob_top_left = (1065, 60)
+    mob_bottom_right = (1173, 74)
 
     z_class_type_image = capture_screenshot(mob_top_left, mob_bottom_right)
     z_class_type_image_np = np.array(z_class_type_image)
@@ -861,15 +850,16 @@ def getZEnabled(autohotpy, event):
     preprocessed_image = np.array(preprocessed_image)
     cv2.imwrite("mob_preprocessed.png", preprocessed_image)
 
-    # Use pytesseract to do OCR on the preprocessed image
+    # Use pytesseract to do OCR on the preprocessed imagerrrz22rz2rrz2rz2z2zrrz2rz2
     z_class = pytesseract.image_to_string(preprocessed_image)
     z_class = z_class.strip()
     print(f"Z ClassType: {z_class}")
 
-    autohotpy.Z.press()
-    r,g,b = readPixel(1064, 75)
-    if r == 255 and g == 255 and b == 255:
-        if z_class != "Priest" and z_class != "Warrior" and z_class != "Rogue" and z_class != "Mage":
+    autohotpy.press("z")
+    r,g,b = readPixel(1060, 67)
+    print(f"Read rgb: {r} {g} {b}")
+    if r == 121 and g == 16 and b == 15:
+        if "Priest" not in z_class and "Warrior" not in z_class and "Rogue" not in z_class and "Mage" not in z_class:
             return True
         else:
             return False
@@ -969,8 +959,9 @@ class CaptchaManager:
 
                 x, y = get_random_point_within_rectangle(plus_top_left, plus_bottom_right)
                 print(f"clicking {x}, {y} in 5 seconds..")
-                leftClick(autohotpy, event, x,y)
-                autohotpy.S.press()
+                interception.click(x, y, button="left", delay= 0.1)
+
+                autohotpy.press("s")
 
                 def matchWindow():
                     return_obj = None
@@ -1000,7 +991,6 @@ class CaptchaManager:
 
                 # Move the mouse to the x, y position
                 x, y = get_random_point_within_rectangle(plus_top_left, plus_bottom_right)
-                autohotpy.moveMouseToPosition(x, y)
                 time.sleep(0.15) # Small delay to ensure the mouse has time to move
                 while keep_rotating:
                     screenshot = capture_screenshot_to_cv2()
@@ -1020,10 +1010,8 @@ class CaptchaManager:
                                 bottom_right = (top_left[0] + template_width, top_left[1] + template_height)
 
                             x, y = get_random_point_within_rectangle(top_left, bottom_right)
-                            autohotpy.moveMouseToPosition(x, y)
-                            time.sleep(0.15)  # Small delay to ensure the mouse has time to move
-                            leftButton(autohotpy, event)
-                            autohotpy.S.press()
+                            interception.click(x, y, button="left", delay= 0.1)
+                            autohotpy.press("s")
                             #then enter number
                             for num in number_to_enter:
                                 template_to_detect = number_template_dict[int(num)]
@@ -1039,16 +1027,13 @@ class CaptchaManager:
                                 if num_locs[0].size > 0:
                                     debug_image_path = f"number_{num}_detected_on_numpad.png"
                                     x, y = get_random_point_within_rectangle(top_left, bottom_right)
-                                    autohotpy.moveMouseToPosition(x, y)
-                                    time.sleep(0.05)  # Small delay to ensure the mouse has time to move
-                                    leftButton(autohotpy, event)
-                                    autohotpy.S.press()
+                                    interception.click(x, y, button="left", delay= 0.1)
+                                    autohotpy.press("s")
 
                             x, y = get_random_point_within_rectangle(continue_top_left, continue_bottom_right)
-                            autohotpy.moveMouseToPosition(x, y)
-                            time.sleep(0.05)  # Small delay to ensure the mouse has time to move
-                            leftButton(autohotpy, event)
-                            autohotpy.S.press()
+                            interception.click(x, y, button="left", delay= 0.1)
+
+                            autohotpy.press("s")
                             return True
                         else:
                             offset_angle = int(template.split(".")[0])
@@ -1056,20 +1041,19 @@ class CaptchaManager:
                                 # press MINUS sign
                                 print("# press MINUS sign")
                                 x, y = get_random_point_within_rectangle(minus_top_left, minus_bottom_right)
-                                autohotpy.moveMouseToPosition(x, y)
                                 time.sleep(0.15)
                             elif offset_angle > 0:
                                 # press() PLUS sign
                                 print("# press() PLUS sign")
                                 x, y = get_random_point_within_rectangle(plus_top_left, plus_bottom_right)
-                                autohotpy.moveMouseToPosition(x, y)
                                 time.sleep(0.05)
                             time.sleep(0.05)
-                            leftButton(autohotpy, event)
-                            autohotpy.S.press()
+                            interception.click(x, y, button="left", delay= 0.1)
+
+                            autohotpy.press("s")
                     else:
                         time.sleep(0.05)
-                        leftButton(autohotpy, event)
+                        interception.click(x, y, button="left", delay= 0.1)
 
 
 
@@ -1092,16 +1076,9 @@ class CaptchaManager:
                 while len(locations[0]) < 1:
                     screenshot = capture_screenshot_to_cv2()
                     locations, w, h = match_template(screenshot, mob_image)
-                    if len(locations[0]) < 1:
+                    if len(locations[0]) < 1 and not z_enabled:
                         print("Sending MOUSE MIDDLE BUTTON")
-                        stroke = InterceptionMouseStroke()
-                        autohotpy.sendToDefaultMouse(stroke)
-                        stroke.state = InterceptionMouseState.INTERCEPTION_MOUSE_MIDDLE_BUTTON_DOWN
-                        autohotpy.sendToDefaultMouse(stroke)
-                        time.sleep(0.05)
-                        stroke.state = InterceptionMouseState.INTERCEPTION_MOUSE_MIDDLE_BUTTON_UP
-                        autohotpy.sendToDefaultMouse(stroke)
-                        time.sleep(1.50)
+                        interception.click(700, 1000, button="middle", delay= 1.6)
 
                 print("Found mob or mobs on screen trying to click")
                 z_enabled = getZEnabled(autohotpy, event)
@@ -1114,14 +1091,12 @@ class CaptchaManager:
                         x += 65
                         y += 75
 
-                        autohotpy.moveMouseToPosition(x, y)
-                        time.sleep(0.21)
-                        leftButton(autohotpy, event)
-                        autohotpy.S.press()
+                        interception.click(x, y, button="left", delay= 0.7)
+                        autohotpy.press("s")
 
-                        z_enabled = getZEnabled(autohotpy, event)
-                        if z_enabled:
-                            break
+                    z_enabled = getZEnabled(autohotpy, event)
+                    if z_enabled:
+                        break
                 z_enabled = getZEnabled(autohotpy, event)
                 print(f"Z enabled : {z_enabled}")
 
@@ -1155,7 +1130,11 @@ def resolveCaptcha(autohotpy, event):
             print("No captcha is found!")
 
 
-def superCombo(autohotpy, event):
+def distance(x1, y1, x2, y2):
+    """Calculate the distance between two points."""
+    return math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2)
+
+def superCombo(autohotpy):
     """z2
     This function is called when you press "A" key.
     It executes the combo: A -> S -> move left -> move up -> A -> S
@@ -1163,43 +1142,118 @@ def superCombo(autohotpy, event):
     # mob_name = pressZ(autohotpy)
     #print("Mob name " + mob_name)
 
+    initial_coords_recorded = False
+    radius = 22.5  # Define the radius
 
     r_started = False
-    for i in range(0, 100000):
-        if checkMana():
-            print("Mana needed!")
-            autohotpy.N9.press()
+    initial_coords_recorded = False
+    charCurrentX = 0
+    charCurrentY = 0
+    while True:
+        global RUN_STATE
+        if RUN_STATE:
+            if checkMana():
+                print("Mana needed!")
+                autohotpy.press("9")
+            event = "kek"
+            # getZEnabled(autohotpy,event)z2rz2rz
+            resolveCaptcha(autohotpy, event)
+            # charX, charY = getCoords(autohotpy, event)
+            # try:
+            #     charCurrentX = int(charX)
+            # except:
+            #     pass
+            #
+            # try:
+            #     charCurrentY = int(charY)
+            # except:
+            #     pass
+            #
+            # if not initial_coords_recorded:
+            #     initialX = charCurrentX
+            #     initialY = charCurrentY
+            #     initial_coords_recorded = True
+            #     print("Initial coordinates recorded:", initialX, initialY)
+            #
+            #
+            # print("Located at {}, {}".format(charCurrentX,charCurrentY))
+            # current_distance = distance(initialX, initialY, charCurrentX, charCurrentY)
+            # print("Current distance to center: {}".format(current_distance))
+            #rz2r
+            # if current_distance > radius:z2
+            #     print("Character is out of bounds!")
+            #     leftButton(autohotpy, event)
+            #     time.sleep(3.1)
+            # 2rz2rz2rz2rrz2rz2z2r3z2zrz2rz2rz2rz2
+            # #sprint(autohotpy)
+            # torment(a23232323utohotpy, event)zr
+            event = "kek"
 
-        #getZEnabled(autohotpy,event)
-        resolveCaptcha(autohotpy, event)
-        #getCoords(autohotpy, event)
-        #partyHealer(autohotpy, event)
-        #
-        # #sprint(autohotpy)
 
 
-        selfStr(autohotpy)
-        kitap(autohotpy)
-        malice(autohotpy)
-        #if "Undead" in getZMobName(autohotpy, event):
-        helishCombo(autohotpy)
-        #getCoords(autohotpy, event)
+            #partyHealer(autohotpy, event)r
 
-        #z2rz2rztorment(autohotpy, event)
-        #
-        #
-        if checkHealth():
-            print("Health needed!")
-            autohotpy.N0.press()
-            time.sleep(1.60)
+            selfStr(autohotpy)
+            kitap(autohotpy)
+            #rmalice(autohotpy)
+
+            # z
+            #z
+            nameAndLvl = ''
+            # nameAndLvl = getZMobNameAndLevel(autohotpy, event)
+            # if "Magical" in nameAndLvl:
+            #     helishCombo(autohotpy,True)
+
+            helishCombo(autohotpy)
+            if checkHealth():
+                print("Health needed!")
+                autohotpy.press("0")
+                time.sleep(1.60)
 
 
+def const_z():
+    global RUN_STATE
+    while RUN_STATE:
+        interception.press("z")
+        time.sleep(0.23)
+def run_in_parallel():
+    def _listen_to_events(context: Interception, stop_button: str) -> None:
+        """Listens to a given interception context. Stops when the `stop_button` is
+        the event key.
+
+        Remember to destroy the context in any case afterwards. Otherwise events
+        will continue to be intercepted!"""
+        stop = _get_keycode(stop_button)
+        try:
+            while True:
+                device = context.wait()
+                stroke = context.receive(device)
+
+                if context.is_keyboard(device) and stroke.code == stop:
+                    return
+
+                #print(f"Received stroke {stroke} on mouse device {device}")
+                context.send(device, stroke)
+
+                if stroke.code == 68:
+                    global RUN_STATE
+                    RUN_STATE = not RUN_STATE
+
+        finally:
+            context.destroy()
+
+    context = Interception()
+    context.set_filter(context.is_keyboard, FilterKeyState.FILTER_KEY_DOWN)
+    _listen_to_events(context, "esc")
+threading.Thread(target=run_in_parallel).start()
+threading.Thread(target=const_z).start()
+superCombo(interception)
 
 # THIS IS WERE THE PROGRAM STARTS EXECUTING!!!!!!!!s
-if __name__ == "__main__":
-    auto = AutoHotPy()  # Initialize the library
-    auto.registerExit(auto.ESC,
-                      exitAutoHotKey)  # Registering an end key is mandatory to be able to stop the program gracefully
-    auto.registerForKeyDown(auto.F10,
-                            superCombo)  # This method lets you say: "when I press A in the keyboard, then execute "superCombo"
-    auto.start()  # Now that everything is registered we should start runnin the program
+# if __name__ == "__main__":
+#     auto = AutoHotPy()  # Initialize the library
+#     auto.registerExit(auto.ESC,
+#                       exitAutoHotKey)  # Registering an end key is mandatory to be able to stop the program gracefully
+#     auto.registerForKeyDown(auto.F10,
+#                             superCombo)  # This method lets you say: "when I press A in the keyboard, then execute "superCombo"
+#     auto.start()  # Now that everything is registered we should start runnin the program
